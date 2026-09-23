@@ -32,6 +32,34 @@ headers = {
     'sec-ch-ua-mobile': '?0'
 }
 
+def get_playtomic_availability(tenant_id, date_str):
+    """ Haalt Playtomic availability data op voor een specifieke datum """
+    url = "https://playtomic.com/api/clubs/availability"
+    params = {
+        'tenant_id': tenant_id,
+        'date': date_str,
+        'sport_id': 'PADEL'
+    }
+    
+    try:
+        response = requests.get(
+            url, 
+            headers=headers, 
+            params=params, 
+            impersonate="chrome120", 
+            timeout=15
+        )
+        
+        print(f"[{date_str}] HTTP Status: {response.status_code}")
+        if response.status_code == 200:
+            return response.json()
+        
+        print(f"[{date_str}] Fout bij ophalen ({response.status_code}): {response.text[:200]}")
+        return []
+    except Exception as e:
+        print(f"[{date_str}] Exception bij verzoek: {e}")
+        return []
+
 def main():
     today = datetime.date.today()
     print(f"Start Playtomic sync voor Padelkapel ({TENANT_ID}) voor de komende {DAYS_AHEAD} dagen (vanaf {today})...")
@@ -109,3 +137,6 @@ def main():
                             total_added += 1
 
     print(f"Sync voltooid. Totaal {total_added} nieuwe blokkades toegevoegd aan Google Calendar.")
+
+if __name__ == "__main__":
+    main()
