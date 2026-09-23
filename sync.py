@@ -26,9 +26,12 @@ service = build('calendar', 'v3', credentials=credentials)
 headers = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36',
     'Referer': 'https://playtomic.com/clubs/padelkapel',
+    'Origin': 'https://playtomic.com',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7',
+    'x-playtomic-client': 'web',
     'sec-ch-ua-platform': '"macOS"',
-    'sec-ch-ua-mobile': '?0',
-    'Accept': 'application/json, text/plain, */*'
+    'sec-ch-ua-mobile': '?0'
 }
 
 def get_playtomic_availability(tenant_id, date_str):
