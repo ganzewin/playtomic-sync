@@ -91,13 +91,22 @@ def main():
         
         data = get_playtomic_availability(TENANT_ID, date_str)
         
+        if not data:
+            print(f"[{date_str}] Geen data/lege respons ontvangen van Playtomic.")
+            continue
+
         if isinstance(data, list):
             for item in data:
-                resource_name = item.get('resource_name', '').lower()
+                resource_name = item.get('resource_name', item.get('name', '')).lower()
+                slots = item.get('slots', [])
                 
-                if not COURT_NAME_FILTER or COURT_NAME_FILTER in resource_name:
-                    slots = item.get('slots', [])
+                # Eerste dag even printen welke banen er überhaupt gevonden worden
+                if day_offset == 0:
+                    print(f"Gevonden baan in Playtomic: '{resource_name}' ({len(slots)} slots)")
+
+                if not COURT_NAME_FILTER or COURT_NAME_FILTER.lower() in resource_name:
                     for slot in slots:
+                        # Controleer of het slot bezet is
                         if not slot.get('available', True):
                             start_time_str = slot.get('start_time')
                             end_time_str = slot.get('end_time')
@@ -119,6 +128,5 @@ def main():
                                 total_added += 1
 
     print(f"Sync voltooid. Totaal {total_added} nieuwe blokkades toegevoegd aan Google Calendar.")
-
 if __name__ == "__main__":
     main()
