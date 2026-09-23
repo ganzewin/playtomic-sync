@@ -23,23 +23,43 @@ credentials = Credentials.from_service_account_info(info, scopes=SCOPES)
 service = build('calendar', 'v3', credentials=credentials)
 
 headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     'Accept': 'application/json, text/plain, */*',
     'Origin': 'https://playtomic.io',
     'Referer': 'https://playtomic.io/'
 }
 
 def get_playtomic_availability(tenant_id, date_str):
-    """ Haalt de banen en tijdsloten op voor de specifieke datum en tenant_id """
-    url = f"https://playtomic.io/api/v1/tenants/{tenant_id}/availability?date={date_str}&sport_id=PADEL"
+    """ Haalt de banen en tijdsloten op via de vernieuwde Playtomic Availability API """
+    # Gebruik de bijgewerkte endpoint-structuur
+    url = f"https://playtomic.io/api/v1/availability"
+    params = {
+        'tenant_id': tenant_id,
+        'sport_id': 'PADEL',
+        'date': date_str,
+        'start_min': f"{date_str}T00:00:00",
+        'start_max': f"{date_str}T23:59:59"
+    }
     
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, params=params)
         if response.status_code == 200:
             return response.json()
-        else:
-            print(f"Fout bij ophalen Playtomic voor {date_str}: Status {response.status_code}")
-            return []
+        
+        # Fallback naar v3 mobiele API als v1 een 404/400 geeft
+        v3_url = f"https://playtomic.io/api/v3/availability"
+        v3_params = {
+            'tenant_id': tenant_id,
+            'sport_id': 'PADEL',
+            'local_start_min': f"{date_str}T00:00:00",
+            'local_start_max': f"{date_str}T23:59:59"
+        }
+        v3_res = requests.get(v3_url, headers=headers, params=v3_params)
+        if v3_res.status_code == 200:
+            return v3_res.json()
+            
+        print(f"Fout bij ophalen Playtomic voor {date_str}: Status {response.status_code}")
+        return []
     except Exception as e:
         print(f"Exception bij ophalen Playtomic data: {e}")
         return []
