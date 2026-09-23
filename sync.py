@@ -22,7 +22,7 @@ info = json.loads(creds_json)
 credentials = Credentials.from_service_account_info(info, scopes=SCOPES)
 service = build('calendar', 'v3', credentials=credentials)
 
-# Exact dezelfde headers als uit de werkende cURL
+# Uitgebreide headers inclusief x-playtomic-client om 403 afwijzing te omzeilen
 headers = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36',
     'Referer': 'https://playtomic.com/clubs/padelkapel',
@@ -90,7 +90,7 @@ def main():
         for item in data:
             resource_name = item.get('resource_name', '').lower()
             
-            # Check of het de Dubbelbaan betreft (of verwerk alle banen als COURT_NAME_FILTER leeg is)
+            # Check of het de Dubbelbaan betreft
             if not COURT_NAME_FILTER or COURT_NAME_FILTER in resource_name:
                 slots = item.get('slots', [])
                 for slot in slots:
