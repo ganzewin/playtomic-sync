@@ -33,7 +33,7 @@ headers = {
 }
 
 def get_playtomic_availability(tenant_id, date_str):
-    """ Haalt Playtomic data op met TLS-impersonatie via curl_cffi """
+    """ Haalt Playtomic data op met extra debug logging """
     url = "https://playtomic.com/api/clubs/availability"
     params = {
         'tenant_id': tenant_id,
@@ -42,7 +42,6 @@ def get_playtomic_availability(tenant_id, date_str):
     }
     
     try:
-        # impersonate="chrome120" omzeilt de TLS-fingerprint controle van Cloudflare
         response = requests.get(
             url, 
             headers=headers, 
@@ -51,13 +50,19 @@ def get_playtomic_availability(tenant_id, date_str):
             timeout=15
         )
         
-        if response.status_code == 200:
-            return response.json()
-        else:
-            print(f"Fout bij ophalen Playtomic voor {date_str}: Status {response.status_code}")
+        # Log de statuscode en ruwe respons voor de allereerste datum
+        print(f"[{date_str}] HTTP Status: {response.status_code}")
+        if response.status_code != 200:
+            print(f"[{date_str}] Respons tekst: {response.text[:300]}")
             return []
+            
+        data = response.json()
+        if not data:
+            print(f"[{date_str}] Respons is een lege JSON/lijst: {response.text}")
+            
+        return data
     except Exception as e:
-        print(f"Exception bij ophalen Playtomic data voor {date_str}: {e}")
+        print(f"[{date_str}] Exception bij verzoek: {e}")
         return []
 
 def main():
