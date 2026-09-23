@@ -6,7 +6,7 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 # Instellingen
-TENANT_ID = "413c6b29-9e8d-4e9a-b428-1f6df60b26f5"  # Directe Playtomic ID voor Padelkapel
+TENANT_ID = "f56b0aa2-2b7c-4b77-a163-3c4e72d26a4b"  # Exacte Playtomic ID voor Padelkapel
 COURT_NAME_FILTER = "dubbelbaan"  # Filtert specifiek op de dubbelbaan
 DAYS_AHEAD = 28                  # 4 weken vooruit kijken
 
@@ -22,44 +22,31 @@ info = json.loads(creds_json)
 credentials = Credentials.from_service_account_info(info, scopes=SCOPES)
 service = build('calendar', 'v3', credentials=credentials)
 
+# Exact dezelfde headers als uit de werkende cURL
 headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Accept': 'application/json, text/plain, */*',
-    'Origin': 'https://playtomic.io',
-    'Referer': 'https://playtomic.io/'
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36',
+    'Referer': 'https://playtomic.com/clubs/padelkapel',
+    'sec-ch-ua-platform': '"macOS"',
+    'sec-ch-ua-mobile': '?0',
+    'Accept': 'application/json, text/plain, */*'
 }
 
 def get_playtomic_availability(tenant_id, date_str):
-    """ Haalt de banen en tijdsloten op via de vernieuwde Playtomic Availability API """
-    # Gebruik de bijgewerkte endpoint-structuur
-    url = f"https://playtomic.io/api/v1/availability"
+    """ Haalt de banen en tijdsloten op via de geteste Playtomic API endpoint """
+    url = "https://playtomic.com/api/clubs/availability"
     params = {
         'tenant_id': tenant_id,
-        'sport_id': 'PADEL',
         'date': date_str,
-        'start_min': f"{date_str}T00:00:00",
-        'start_max': f"{date_str}T23:59:59"
+        'sport_id': 'PADEL'
     }
     
     try:
         response = requests.get(url, headers=headers, params=params)
         if response.status_code == 200:
             return response.json()
-        
-        # Fallback naar v3 mobiele API als v1 een 404/400 geeft
-        v3_url = f"https://playtomic.io/api/v3/availability"
-        v3_params = {
-            'tenant_id': tenant_id,
-            'sport_id': 'PADEL',
-            'local_start_min': f"{date_str}T00:00:00",
-            'local_start_max': f"{date_str}T23:59:59"
-        }
-        v3_res = requests.get(v3_url, headers=headers, params=v3_params)
-        if v3_res.status_code == 200:
-            return v3_res.json()
-            
-        print(f"Fout bij ophalen Playtomic voor {date_str}: Status {response.status_code}")
-        return []
+        else:
+            print(f"Fout bij ophalen Playtomic voor {date_str}: Status {response.status_code}")
+            return []
     except Exception as e:
         print(f"Exception bij ophalen Playtomic data: {e}")
         return []
@@ -100,8 +87,8 @@ def main():
         for item in data:
             resource_name = item.get('resource_name', '').lower()
             
-            # Check of het de Dubbelbaan betreft
-            if COURT_NAME_FILTER in resource_name:
+            # Check of het de Dubbelbaan betreft (of verwerk alle banen als COURT_NAME_FILTER leeg is)
+            if not COURT_NAME_FILTER or COURT_NAME_FILTER in resource_name:
                 slots = item.get('slots', [])
                 for slot in slots:
                     # Als een slot niet beschikbaar is (bezet)
