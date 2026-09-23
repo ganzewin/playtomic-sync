@@ -34,26 +34,38 @@ headers = {
     'sec-ch-ua-mobile': '?0'
 }
 
+import subprocess
+
 def get_playtomic_availability(tenant_id, date_str):
-    """ Haalt de banen en tijdsloten op via de geteste Playtomic API endpoint """
-    url = "https://playtomic.com/api/clubs/availability"
-    params = {
-        'tenant_id': tenant_id,
-        'date': date_str,
-        'sport_id': 'PADEL'
-    }
+    """ Haalt Playtomic data op via een native cURL subprocess call """
+    url = f"https://playtomic.com/api/clubs/availability?tenant_id={tenant_id}&date={date_str}&sport_id=PADEL"
+    
+    cmd = [
+        'curl', '-s', '--url', url,
+        '-H', 'sec-ch-ua-platform: "macOS"',
+        '-H', f'Referer: https://playtomic.com/clubs/padelkapel?date={date_str}',
+        '-H', 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36',
+        '-H', 'sec-ch-ua: "Google Chrome";v="153", "Not_A Brand";v="8", "Chromium";v="153"',
+        '-H', 'sec-ch-ua-mobile: ?0',
+        '-H', 'x-playtomic-client: web'
+    ]
     
     try:
-        response = requests.get(url, headers=headers, params=params)
-        if response.status_code == 200:
-            return response.json()
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout:
+            data = json.loads(result.stdout)
+            # Als Playtomic toch een fout-object stuurt
+            if isinstance(data, dict) and data.get('status') == 403:
+                print(f"Fout bij ophalen Playtomic voor {date_str}: Status 403 (Cloudflare Block)")
+                return []
+            return data
         else:
-            print(f"Fout bij ophalen Playtomic voor {date_str}: Status {response.status_code}")
+            print(f"Fout bij uitvoeren cURL voor {date_str}")
             return []
     except Exception as e:
-        print(f"Exception bij ophalen Playtomic data: {e}")
+        print(f"Exception bij cURL call: {e}")
         return []
-
+        
 def main():
     today = datetime.date.today()
     print(f"Start Playtomic sync voor Padelkapel ({TENANT_ID}) voor de komende {DAYS_AHEAD} dagen (vanaf {today})...")
