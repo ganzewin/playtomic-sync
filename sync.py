@@ -6,7 +6,7 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 # Instellingen
-TENANT_ID = "padelkapel"
+CLUB_SLUG = "padelkapel"
 COURT_NAME_FILTER = "dubbelbaan"  # Filtert specifiek op de dubbelbaan
 DAYS_AHEAD = 28                  # 4 weken vooruit kijken
 
@@ -22,14 +22,48 @@ info = json.loads(creds_json)
 credentials = Credentials.from_service_account_info(info, scopes=SCOPES)
 service = build('calendar', 'v3', credentials=credentials)
 
-def get_playtomic_availability(date_str):
-    """ Haalt de banen en tijdsloten op van de Playtomic API voor een specifieke datum """
-    # Officiële interne publieke API endpoint van Playtomic
-    url = f"https://playtomic.io/api/v1/tenants/{TENANT_ID}/availability?date={date_str}"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Accept': 'application/json'
-    }
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Origin': 'https://playtomic.io',
+    'Referer': 'https://playtomic.io/'
+}
+
+def get_tenant_id(slug):
+    """ Zoekt het unieke Playtomic Tenant ID op op basis van de club-slug """
+    url = f"https://playtomic.io/api/v1/tenants?user_id=me&tenant_name={slug}"
+    try:
+        res = requests.get(url, headers=headers)
+        if res.status_code == 200:
+            data = res.json()
+            if isinstance(data, list) and len(data) > 0:
+                tenant_id = data[0].get('tenant_id')
+                print(f"[✓] Tenant ID gevonden voor '{slug}': {tenant_id}")
+                return tenant_id
+            elif isinstance(data, dict) and 'tenant_id' in data:
+                return data['tenant_id']
+    except Exception as e:
+        print(f"Fout bij zoeken van tenant_id: {e}")
+    
+    # Fallback: probeer de zoek-API
+    search_url = f"https://playtomic.io/api/v1/tenants?q={slug}"
+    try:
+        res = requests.get(search_url, headers=headers)
+        if res.status_code == 200:
+            data = res.json()
+            if isinstance(data, list) and len(data) > 0:
+                tenant_id = data[0].get('tenant_id')
+                print(f"[✓] Tenant ID gevonden via search voor '{slug}': {tenant_id}")
+                return tenant_id
+    except Exception as e:
+        print(f"Fout bij zoeken via fallback: {e}")
+
+    print(f"[X] Kon Tenant ID niet automatisch vinden voor {slug}")
+    return None
+
+def get_playtomic_availability(tenant_id, date_str):
+    """ Haalt de banen en tijdsloten op voor de specifieke datum en tenant_id """
+    url = f"https://playtomic.io/api/v1/tenants/{tenant_id}/availability?date={date_str}&sport_id=PADEL"
     
     try:
         response = requests.get(url, headers=headers)
@@ -46,6 +80,11 @@ def main():
     today = datetime.date.today()
     print(f"Start Playtomic sync voor de komende {DAYS_AHEAD} dagen (vanaf {today})...")
     
+    tenant_id = get_tenant_id(CLUB_SLUG)
+    if not tenant_id:
+        print("Sync afgebroken: Geen geldig Playtomic Tenant ID.")
+        return
+
     # 1. Haal bestaande Playtomic blokkades op uit Google Calendar om dubbelingen te voorkomen
     start_time_iso = datetime.datetime.combine(today, datetime.time.min).isoformat() + 'Z'
     end_time_iso = datetime.datetime.combine(today + datetime.timedelta(days=DAYS_AHEAD), datetime.time.max).isoformat() + 'Z'
@@ -71,7 +110,7 @@ def main():
         current_date = today + datetime.timedelta(days=day_offset)
         date_str = current_date.strftime("%Y-%m-%d")
         
-        data = get_playtomic_availability(date_str)
+        data = get_playtomic_availability(tenant_id, date_str)
         
         for item in data:
             resource_name = item.get('resource_name', '').lower()
@@ -82,16 +121,14 @@ def main():
                 for slot in slots:
                     # Als een slot niet beschikbaar is (bezet)
                     if not slot.get('available', True):
-                        start_time_str = slot.get('start_time') # e.g. "2026-09-26T18:00:00"
+                        start_time_str = slot.get('start_time')
                         end_time_str = slot.get('end_time')
                         
-                        # Converteer naar ISO format voor Google Calendar
                         start_dt = datetime.datetime.fromisoformat(start_time_str)
                         end_dt = datetime.datetime.fromisoformat(end_time_str)
                         
                         start_iso = start_dt.isoformat()
                         
-                        # Voeg toe als de blokkade nog niet in de agenda staat
                         if start_iso not in existing_event_keys:
                             event_body = {
                                 'summary': 'Playtomic Baan Bezet (Padelkapel)',
