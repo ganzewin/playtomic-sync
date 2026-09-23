@@ -1,14 +1,14 @@
 import datetime
 import os
 import json
-import requests
+from curl_cffi import requests
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 # Instellingen
-TENANT_ID = "f56b0aa2-2b7c-4b77-a163-3c4e72d26a4b"  # Exacte Playtomic ID voor Padelkapel
-COURT_NAME_FILTER = "dubbelbaan"  # Filtert specifiek op de dubbelbaan
-DAYS_AHEAD = 28                  # 4 weken vooruit kijken
+TENANT_ID = "f56b0aa2-2b7c-4b77-a163-3c4e72d26a4b"
+COURT_NAME_FILTER = "dubbelbaan"
+DAYS_AHEAD = 28
 
 # Google Credentials laden uit GitHub Secrets
 SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -22,9 +22,7 @@ info = json.loads(creds_json)
 credentials = Credentials.from_service_account_info(info, scopes=SCOPES)
 service = build('calendar', 'v3', credentials=credentials)
 
-# Uitgebreide headers inclusief x-playtomic-client om 403 afwijzing te omzeilen
 headers = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36',
     'Referer': 'https://playtomic.com/clubs/padelkapel',
     'Origin': 'https://playtomic.com',
     'Accept': 'application/json, text/plain, */*',
@@ -34,43 +32,38 @@ headers = {
     'sec-ch-ua-mobile': '?0'
 }
 
-import subprocess
-
 def get_playtomic_availability(tenant_id, date_str):
-    """ Haalt Playtomic data op via een native cURL subprocess call """
-    url = f"https://playtomic.com/api/clubs/availability?tenant_id={tenant_id}&date={date_str}&sport_id=PADEL"
-    
-    cmd = [
-        'curl', '-s', '--url', url,
-        '-H', 'sec-ch-ua-platform: "macOS"',
-        '-H', f'Referer: https://playtomic.com/clubs/padelkapel?date={date_str}',
-        '-H', 'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36',
-        '-H', 'sec-ch-ua: "Google Chrome";v="153", "Not_A Brand";v="8", "Chromium";v="153"',
-        '-H', 'sec-ch-ua-mobile: ?0',
-        '-H', 'x-playtomic-client: web'
-    ]
+    """ Haalt Playtomic data op met TLS-impersonatie via curl_cffi """
+    url = "https://playtomic.com/api/clubs/availability"
+    params = {
+        'tenant_id': tenant_id,
+        'date': date_str,
+        'sport_id': 'PADEL'
+    }
     
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode == 0 and result.stdout:
-            data = json.loads(result.stdout)
-            # Als Playtomic toch een fout-object stuurt
-            if isinstance(data, dict) and data.get('status') == 403:
-                print(f"Fout bij ophalen Playtomic voor {date_str}: Status 403 (Cloudflare Block)")
-                return []
-            return data
+        # impersonate="chrome120" omzeilt de TLS-fingerprint controle van Cloudflare
+        response = requests.get(
+            url, 
+            headers=headers, 
+            params=params, 
+            impersonate="chrome120", 
+            timeout=15
+        )
+        
+        if response.status_code == 200:
+            return response.json()
         else:
-            print(f"Fout bij uitvoeren cURL voor {date_str}")
+            print(f"Fout bij ophalen Playtomic voor {date_str}: Status {response.status_code}")
             return []
     except Exception as e:
-        print(f"Exception bij cURL call: {e}")
+        print(f"Exception bij ophalen Playtomic data voor {date_str}: {e}")
         return []
-        
+
 def main():
     today = datetime.date.today()
     print(f"Start Playtomic sync voor Padelkapel ({TENANT_ID}) voor de komende {DAYS_AHEAD} dagen (vanaf {today})...")
     
-    # 1. Haal bestaande Playtomic blokkades op uit Google Calendar om dubbelingen te voorkomen
     start_time_iso = datetime.datetime.combine(today, datetime.time.min).isoformat() + 'Z'
     end_time_iso = datetime.datetime.combine(today + datetime.timedelta(days=DAYS_AHEAD), datetime.time.max).isoformat() + 'Z'
     
@@ -92,40 +85,38 @@ def main():
 
     total_added = 0
 
-    # 2. Doorlopen van de komende 28 dagen
     for day_offset in range(DAYS_AHEAD):
         current_date = today + datetime.timedelta(days=day_offset)
         date_str = current_date.strftime("%Y-%m-%d")
         
         data = get_playtomic_availability(TENANT_ID, date_str)
         
-        for item in data:
-            resource_name = item.get('resource_name', '').lower()
-            
-            # Check of het de Dubbelbaan betreft
-            if not COURT_NAME_FILTER or COURT_NAME_FILTER in resource_name:
-                slots = item.get('slots', [])
-                for slot in slots:
-                    # Als een slot niet beschikbaar is (bezet)
-                    if not slot.get('available', True):
-                        start_time_str = slot.get('start_time')
-                        end_time_str = slot.get('end_time')
-                        
-                        start_dt = datetime.datetime.fromisoformat(start_time_str)
-                        end_dt = datetime.datetime.fromisoformat(end_time_str)
-                        
-                        start_iso = start_dt.isoformat()
-                        
-                        if start_iso not in existing_event_keys:
-                            event_body = {
-                                'summary': 'Playtomic Baan Bezet (Padelkapel)',
-                                'description': f'Automatisch geblokkeerd via Playtomic voor {resource_name}',
-                                'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
-                                'end': {'dateTime': end_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
-                            }
-                            service.events().insert(calendarId=calendar_id, body=event_body).execute()
-                            print(f"[+ Toegevoegd] Blokkade op {start_time_str} voor {resource_name}")
-                            total_added += 1
+        if isinstance(data, list):
+            for item in data:
+                resource_name = item.get('resource_name', '').lower()
+                
+                if not COURT_NAME_FILTER or COURT_NAME_FILTER in resource_name:
+                    slots = item.get('slots', [])
+                    for slot in slots:
+                        if not slot.get('available', True):
+                            start_time_str = slot.get('start_time')
+                            end_time_str = slot.get('end_time')
+                            
+                            start_dt = datetime.datetime.fromisoformat(start_time_str)
+                            end_dt = datetime.datetime.fromisoformat(end_time_str)
+                            
+                            start_iso = start_dt.isoformat()
+                            
+                            if start_iso not in existing_event_keys:
+                                event_body = {
+                                    'summary': 'Playtomic Baan Bezet (Padelkapel)',
+                                    'description': f'Automatisch geblokkeerd via Playtomic voor {resource_name}',
+                                    'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
+                                    'end': {'dateTime': end_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
+                                }
+                                service.events().insert(calendarId=calendar_id, body=event_body).execute()
+                                print(f"[+ Toegevoegd] Blokkade op {start_time_str} voor {resource_name}")
+                                total_added += 1
 
     print(f"Sync voltooid. Totaal {total_added} nieuwe blokkades toegevoegd aan Google Calendar.")
 
