@@ -99,17 +99,21 @@ def main():
         if not data:
             print(f"[{date_str}] Geen data/lege respons ontvangen van Playtomic.")
             continue
-
+            
         if isinstance(data, list):
             for item in data:
-                resource_name = item.get('resource_name', item.get('name', '')).lower()
-                slots = item.get('slots', [])
+                # Playtomic gebruikt soms 'name', 'resource_name' of 'properties.name'
+                resource_name = (
+                    item.get('name') or 
+                    item.get('resource_name') or 
+                    item.get('properties', {}).get('name', '')
+                ).lower()
                 
-                # Eerste dag even printen welke banen er überhaupt gevonden worden
-                if day_offset == 0:
-                    print(f"Gevonden baan in Playtomic: '{resource_name}' ({len(slots)} slots)")
+                # Als resource_name leeg blijft, nemen we alle banen mee (of filteren we niet op naam)
+                is_target_court = not COURT_NAME_FILTER or (COURT_NAME_FILTER.lower() in resource_name) or resource_name == ''
 
-                if not COURT_NAME_FILTER or COURT_NAME_FILTER.lower() in resource_name:
+                if is_target_court:
+                    slots = item.get('slots', [])
                     for slot in slots:
                         # Controleer of het slot bezet is
                         if not slot.get('available', True):
@@ -122,16 +126,17 @@ def main():
                             start_iso = start_dt.isoformat()
                             
                             if start_iso not in existing_event_keys:
+                                court_label = resource_name if resource_name else "Baan"
                                 event_body = {
                                     'summary': 'Playtomic Baan Bezet (Padelkapel)',
-                                    'description': f'Automatisch geblokkeerd via Playtomic voor {resource_name}',
+                                    'description': f'Automatisch geblokkeerd via Playtomic voor {court_label}',
                                     'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
                                     'end': {'dateTime': end_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
                                 }
                                 service.events().insert(calendarId=calendar_id, body=event_body).execute()
-                                print(f"[+ Toegevoegd] Blokkade op {start_time_str} voor {resource_name}")
+                                print(f"[+ Toegevoegd] Blokkade op {start_time_str}")
                                 total_added += 1
-
+                                
     print(f"Sync voltooid. Totaal {total_added} nieuwe blokkades toegevoegd aan Google Calendar.")
 if __name__ == "__main__":
     main()
