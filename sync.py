@@ -32,39 +32,6 @@ headers = {
     'sec-ch-ua-mobile': '?0'
 }
 
-def get_playtomic_availability(tenant_id, date_str):
-    """ Haalt Playtomic data op met extra debug logging """
-    url = "https://playtomic.com/api/clubs/availability"
-    params = {
-        'tenant_id': tenant_id,
-        'date': date_str,
-        'sport_id': 'PADEL'
-    }
-    
-    try:
-        response = requests.get(
-            url, 
-            headers=headers, 
-            params=params, 
-            impersonate="chrome120", 
-            timeout=15
-        )
-        
-        # Log de statuscode en ruwe respons voor de allereerste datum
-        print(f"[{date_str}] HTTP Status: {response.status_code}")
-        if response.status_code != 200:
-            print(f"[{date_str}] Respons tekst: {response.text[:300]}")
-            return []
-            
-        data = response.json()
-        if not data:
-            print(f"[{date_str}] Respons is een lege JSON/lijst: {response.text}")
-            
-        return data
-    except Exception as e:
-        print(f"[{date_str}] Exception bij verzoek: {e}")
-        return []
-
 def main():
     today = datetime.date.today()
     print(f"Start Playtomic sync voor Padelkapel ({TENANT_ID}) voor de komende {DAYS_AHEAD} dagen (vanaf {today})...")
@@ -96,47 +63,49 @@ def main():
         
         data = get_playtomic_availability(TENANT_ID, date_str)
         
-        if not data:
-            print(f"[{date_str}] Geen data/lege respons ontvangen van Playtomic.")
-            continue
-            
+        # Eenmalig op dag 1 de exacte JSON structuur printen om te zien wat Playtomic geeft
+        if day_offset == 0 and data:
+            print(f"--- DEBUG DATA DUMP DAG 1 ---")
+            print(json.dumps(data, indent=2)[:1000])
+            print(f"-----------------------------")
+
         if isinstance(data, list):
             for item in data:
-                # Playtomic gebruikt soms 'name', 'resource_name' of 'properties.name'
+                # Check op verschillende veldnamen voor baannaam
                 resource_name = (
                     item.get('name') or 
                     item.get('resource_name') or 
                     item.get('properties', {}).get('name', '')
                 ).lower()
                 
-                # Als resource_name leeg blijft, nemen we alle banen mee (of filteren we niet op naam)
-                is_target_court = not COURT_NAME_FILTER or (COURT_NAME_FILTER.lower() in resource_name) or resource_name == ''
+                slots = item.get('slots', [])
+                
+                for slot in slots:
+                    # Controleer op alle mogelijke velden die op 'bezet' kunnen duiden
+                    is_available = slot.get('available', True)
+                    status = slot.get('status', '').upper()
+                    
+                    # Een slot is bezet als available False is OF status 'LOCKED'/'BOOKED'/'UNAVAILABLE' is
+                    is_blocked = (is_available is False) or (status in ['LOCKED', 'BOOKED', 'UNAVAILABLE', 'RESERVED'])
+                    
+                    if is_blocked:
+                        start_time_str = slot.get('start_time')
+                        end_time_str = slot.get('end_time')
+                        
+                        start_dt = datetime.datetime.fromisoformat(start_time_str)
+                        end_dt = datetime.datetime.fromisoformat(end_time_str)
+                        
+                        start_iso = start_dt.isoformat()
+                        
+                        if start_iso not in existing_event_keys:
+                            event_body = {
+                                'summary': 'Playtomic Baan Bezet (Padelkapel)',
+                                'description': f'Automatisch geblokkeerd via Playtomic voor {resource_name or "Dubbelbaan"}',
+                                'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
+                                'end': {'dateTime': end_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
+                            }
+                            service.events().insert(calendarId=calendar_id, body=event_body).execute()
+                            print(f"[+ Toegevoegd] Blokkade op {start_time_str}")
+                            total_added += 1
 
-                if is_target_court:
-                    slots = item.get('slots', [])
-                    for slot in slots:
-                        # Controleer of het slot bezet is
-                        if not slot.get('available', True):
-                            start_time_str = slot.get('start_time')
-                            end_time_str = slot.get('end_time')
-                            
-                            start_dt = datetime.datetime.fromisoformat(start_time_str)
-                            end_dt = datetime.datetime.fromisoformat(end_time_str)
-                            
-                            start_iso = start_dt.isoformat()
-                            
-                            if start_iso not in existing_event_keys:
-                                court_label = resource_name if resource_name else "Baan"
-                                event_body = {
-                                    'summary': 'Playtomic Baan Bezet (Padelkapel)',
-                                    'description': f'Automatisch geblokkeerd via Playtomic voor {court_label}',
-                                    'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
-                                    'end': {'dateTime': end_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
-                                }
-                                service.events().insert(calendarId=calendar_id, body=event_body).execute()
-                                print(f"[+ Toegevoegd] Blokkade op {start_time_str}")
-                                total_added += 1
-                                
     print(f"Sync voltooid. Totaal {total_added} nieuwe blokkades toegevoegd aan Google Calendar.")
-if __name__ == "__main__":
-    main()
