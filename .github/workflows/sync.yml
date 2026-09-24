@@ -2,7 +2,7 @@ name: Playtomic Calendar Sync
 
 on:
   schedule:
-    - cron: '0 */3 * * *'
+    - cron: '0 */1 * * *'
   workflow_dispatch:
 
 jobs:
@@ -12,13 +12,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Set up Virtual Environment
         run: |
-          python3 -m pip install --upgrade pip --break-system-packages
-          if [ -f requirements.txt ]; then python3 -m pip install -r requirements.txt --break-system-packages; fi
-          
+          python3 -m venv venv
+          ./venv/bin/pip install --upgrade pip
+          if [ -f requirements.txt ]; then ./venv/bin/pip install -r requirements.txt; fi
+
       - name: Run Playtomic Sync Script
         env:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           CALENDAR_ID: ${{ secrets.CALENDAR_ID }}
-        run: python3 sync.py
+        run: ./venv/bin/python sync.py
