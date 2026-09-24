@@ -95,9 +95,9 @@ def main():
 
     total_added = 0
 
-    # Openingstijden in UTC (bijv. 06:00 tot 22:00 UTC komt overeen met 08:00 tot 00:00 CEST)
+    # Openingstijden in UTC (06:00 tot 21:30 UTC = 08:00 tot 23:30 CEST)
     OPENING_HOUR_UTC_START = 6
-    OPENING_HOUR_UTC_END = 22
+    OPENING_HOUR_UTC_END = 21
 
     for day_offset in range(DAYS_AHEAD):
         current_date = today + datetime.timedelta(days=day_offset)
@@ -118,44 +118,56 @@ def main():
 
                 slots = resource.get('slots', [])
                 
-                # Verzameling van alle beschikbare starttijden in UTC
+                # Filter ALLEEN starttijden van 60 min slots
                 available_start_times = set()
                 for slot in slots:
+                    duration = slot.get('duration')
                     start_time = slot.get('start_time')
-                    if start_time:
+                    if duration == 60 and start_time:
                         available_start_times.add(start_time)
 
-                # Loop in stappen van 30 minuten door de dag
                 current_time_utc = datetime.datetime.combine(current_date, datetime.time(OPENING_HOUR_UTC_START, 0), tzinfo=datetime.timezone.utc)
                 end_day_utc = datetime.datetime.combine(current_date, datetime.time(OPENING_HOUR_UTC_END, 0), tzinfo=datetime.timezone.utc)
+
+                busy_intervals = []
+                current_block_start = None
 
                 while current_time_utc < end_day_utc:
                     time_str = current_time_utc.strftime("%H:%M:%S")
                     
-                    # Als de starttijd niet voorkomt in Playtomic, is dit blokje van 30 min bezet
+                    # Als de tijd NIET beschikbaar is voor 60 min
                     if time_str not in available_start_times:
-                        slot_start_utc = current_time_utc
-                        slot_end_utc = current_time_utc + datetime.timedelta(minutes=30)
-                        
-                        # Omzetten naar de Nederlandse tijdzone
-                        slot_start_local = slot_start_utc.astimezone(LOCAL_TZ)
-                        slot_end_local = slot_end_utc.astimezone(LOCAL_TZ)
-                        
-                        event_body = {
-                            'summary': 'Playtomic Baan Bezet (Padelkapel)',
-                            'description': 'Automatisch geblokkeerd via Playtomic (Dubbelbaan)',
-                            'start': {'dateTime': slot_start_local.isoformat()},
-                            'end': {'dateTime': slot_end_local.isoformat()},
-                        }
-                        service.events().insert(calendarId=calendar_id, body=event_body).execute()
-                        print(f"[+ Toegevoegd] Blokkade op {slot_start_local.strftime('%Y-%m-%d %H:%M')} tot {slot_end_local.strftime('%H:%M')}")
-                        total_added += 1
+                        if current_block_start is None:
+                            current_block_start = current_time_utc
+                    else:
+                        if current_block_start is not None:
+                            busy_intervals.append((current_block_start, current_time_utc))
+                            current_block_start = None
 
                     current_time_utc += datetime.timedelta(minutes=30)
 
+                # Eventueel laatste blokje van de dag afsluiten
+                if current_block_start is not None:
+                    busy_intervals.append((current_block_start, current_time_utc))
+
+                # Maak voor elk samengevoegd blok 1 nette Google Calendar afspraak
+                for block_start_utc, block_end_utc in busy_intervals:
+                    start_local = block_start_utc.astimezone(LOCAL_TZ)
+                    end_local = block_end_utc.astimezone(LOCAL_TZ)
+                    
+                    event_body = {
+                        'summary': 'Playtomic Baan Bezet (Padelkapel)',
+                        'description': 'Automatisch geblokkeerd via Playtomic (Dubbelbaan)',
+                        'start': {'dateTime': start_local.isoformat()},
+                        'end': {'dateTime': end_local.isoformat()},
+                    }
+                    service.events().insert(calendarId=calendar_id, body=event_body).execute()
+                    print(f"[+ Toegevoegd] Blokkade op {start_local.strftime('%Y-%m-%d %H:%M')} tot {end_local.strftime('%H:%M')}")
+                    total_added += 1
+
                 break
 
-    print(f"Sync voltooid. Totaal {total_added} nieuwe blokkades toegevoegd aan Google Calendar.")
+    print(f"Sync voltooid. Totaal {total_added} nieuwe samengevoegde blokkades toegevoegd.")
 
 if __name__ == "__main__":
     main()
