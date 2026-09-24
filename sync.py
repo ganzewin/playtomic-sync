@@ -1,6 +1,7 @@
 import datetime
 import os
 import json
+from zoneinfo import ZoneInfo
 from curl_cffi import requests
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -8,6 +9,7 @@ from googleapiclient.discovery import build
 # Instellingen
 TENANT_ID = "f56b0aa2-2b7c-4b77-a163-3c4e72d26a4b"
 DAYS_AHEAD = 28
+LOCAL_TZ = ZoneInfo("Europe/Amsterdam")
 
 # Google Credentials laden uit GitHub Secrets
 SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -57,7 +59,7 @@ def get_playtomic_availability(tenant_id, date_str):
         return []
 
 def clear_existing_events(start_iso, end_iso):
-    """ Wist alle bestaande Playtomic afspraken voor de komende periode (schone lei) """
+    """ Wist alle bestaande Playtomic afspraken voor de komende periode """
     print("Oude Playtomic afspraken opruimen uit Google Calendar...")
     page_token = None
     deleted_count = 0
@@ -86,17 +88,16 @@ def main():
     today = datetime.date.today()
     print(f"Start Playtomic sync voor Padelkapel ({TENANT_ID}) voor de komende {DAYS_AHEAD} dagen (vanaf {today})...")
     
-    start_time_iso = datetime.datetime.combine(today, datetime.time.min).isoformat() + 'Z'
-    end_time_iso = datetime.datetime.combine(today + datetime.timedelta(days=DAYS_AHEAD), datetime.time.max).isoformat() + 'Z'
+    start_dt_utc = datetime.datetime.combine(today, datetime.time.min, tzinfo=datetime.timezone.utc)
+    end_dt_utc = datetime.datetime.combine(today + datetime.timedelta(days=DAYS_AHEAD), datetime.time.max, tzinfo=datetime.timezone.utc)
     
-    # 1. SCHONE LEI: Eerst alle bestaande afspraken opruimen
-    clear_existing_events(start_time_iso, end_time_iso)
+    clear_existing_events(start_dt_utc.isoformat(), end_dt_utc.isoformat())
 
     total_added = 0
 
-    # Openingstijden van de club (bijv. van 08:00 tot 23:00)
-    OPENING_HOUR_START = 8   # 08:00
-    OPENING_HOUR_END = 23    # 23:00
+    # Openingstijden in UTC (bijv. 06:00 tot 22:00 UTC komt overeen met 08:00 tot 00:00 CEST)
+    OPENING_HOUR_UTC_START = 6
+    OPENING_HOUR_UTC_END = 22
 
     for day_offset in range(DAYS_AHEAD):
         current_date = today + datetime.timedelta(days=day_offset)
@@ -105,8 +106,6 @@ def main():
         data = get_playtomic_availability(TENANT_ID, date_str)
         
         if isinstance(data, list) and len(data) > 0:
-            # Neem alleen het eerste resource-object als dat de dubbelbaan is,
-            # of filter op de specifieke resource
             for resource in data:
                 resource_name = (
                     resource.get('name') or 
@@ -114,47 +113,46 @@ def main():
                     resource.get('properties', {}).get('name', '')
                 ).lower()
 
-                # Filter op 'dubbelbaan' of pak de eerste baan als namen leeg zijn
                 if "enkel" in resource_name:
                     continue  # Sla enkelbanen over
 
                 slots = resource.get('slots', [])
                 
-                # Filter ALLEEN de slots met een duur van 60 minuten
-                available_times_60 = set()
+                # Verzameling van alle beschikbare starttijden in UTC
+                available_start_times = set()
                 for slot in slots:
-                    duration = slot.get('duration')
                     start_time = slot.get('start_time')
-                    
-                    if duration == 60 and start_time:
-                        available_times_60.add(start_time)
+                    if start_time:
+                        available_start_times.add(start_time)
 
-                # Genereer ALLEEN hele uren (08:00, 09:00, 10:00, etc.)
-                current_time = datetime.datetime.combine(current_date, datetime.time(OPENING_HOUR_START, 0))
-                end_day_time = datetime.datetime.combine(current_date, datetime.time(OPENING_HOUR_END, 0))
+                # Loop in stappen van 30 minuten door de dag
+                current_time_utc = datetime.datetime.combine(current_date, datetime.time(OPENING_HOUR_UTC_START, 0), tzinfo=datetime.timezone.utc)
+                end_day_utc = datetime.datetime.combine(current_date, datetime.time(OPENING_HOUR_UTC_END, 0), tzinfo=datetime.timezone.utc)
 
-                while current_time < end_day_time:
-                    time_str = current_time.strftime("%H:%M:%S")
+                while current_time_utc < end_day_utc:
+                    time_str = current_time_utc.strftime("%H:%M:%S")
                     
-                    # Als het hele uur NIET beschikbaar is voor 60m, is het slot bezet
-                    if time_str not in available_times_60:
-                        slot_start_dt = current_time
-                        slot_end_dt = current_time + datetime.timedelta(hours=1)
+                    # Als de starttijd niet voorkomt in Playtomic, is dit blokje van 30 min bezet
+                    if time_str not in available_start_times:
+                        slot_start_utc = current_time_utc
+                        slot_end_utc = current_time_utc + datetime.timedelta(minutes=30)
+                        
+                        # Omzetten naar de Nederlandse tijdzone
+                        slot_start_local = slot_start_utc.astimezone(LOCAL_TZ)
+                        slot_end_local = slot_end_utc.astimezone(LOCAL_TZ)
                         
                         event_body = {
                             'summary': 'Playtomic Baan Bezet (Padelkapel)',
-                            'description': f'Automatisch geblokkeerd via Playtomic (Dubbelbaan)',
-                            'start': {'dateTime': slot_start_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
-                            'end': {'dateTime': slot_end_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
+                            'description': 'Automatisch geblokkeerd via Playtomic (Dubbelbaan)',
+                            'start': {'dateTime': slot_start_local.isoformat()},
+                            'end': {'dateTime': slot_end_local.isoformat()},
                         }
                         service.events().insert(calendarId=calendar_id, body=event_body).execute()
-                        print(f"[+ Toegevoegd] Blokkade op {date_str} van {current_time.strftime('%H:%M')} tot {slot_end_dt.strftime('%H:%M')}")
+                        print(f"[+ Toegevoegd] Blokkade op {slot_start_local.strftime('%Y-%m-%d %H:%M')} tot {slot_end_local.strftime('%H:%M')}")
                         total_added += 1
 
-                    # Stap telkens 1 HEEL UUR verder om dubbelingen en half-uur-overlap te voorkomen
-                    current_time += datetime.timedelta(hours=1)
+                    current_time_utc += datetime.timedelta(minutes=30)
 
-                # We verwerken maar 1 baan (de dubbelbaan) om dubbeling tussen banen te voorkomen
                 break
 
     print(f"Sync voltooid. Totaal {total_added} nieuwe blokkades toegevoegd aan Google Calendar.")
