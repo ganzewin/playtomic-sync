@@ -85,10 +85,9 @@ def main():
 
     total_added = 0
 
-    # Definieer de openingstijden (bijv. van 07:00 tot 23:00, elk half uur)
-    OPENING_HOUR_START = 7   # 07:00
+    # Openingstijden van de club (bijv. van 08:00 tot 23:00)
+    OPENING_HOUR_START = 8   # 08:00
     OPENING_HOUR_END = 23    # 23:00
-    SLOT_DURATION_MINUTES = 30 # Blokken van 30 min of 60 min
 
     for day_offset in range(DAYS_AHEAD):
         current_date = today + datetime.timedelta(days=day_offset)
@@ -100,41 +99,44 @@ def main():
             for resource in data:
                 slots = resource.get('slots', [])
                 
-                # Verzamel alle starttijden die écht beschikbaar zijn (bijv. "08:00:00", "08:30:00")
-                available_times = set()
+                # Filter ALLEEN de slots met een duur van 60 minuten
+                available_times_60 = set()
                 for slot in slots:
+                    duration = slot.get('duration')
                     start_time = slot.get('start_time')
-                    if start_time:
-                        available_times.add(start_time)
+                    
+                    if duration == 60 and start_time:
+                        available_times_60.add(start_time)
 
-                # Genereer alle mogelijke tijdslots tussen openingstijd en sluitingstijd
+                # Genereer alle mogelijke starttijden per half uur
                 current_time = datetime.datetime.combine(current_date, datetime.time(OPENING_HOUR_START, 0))
                 end_day_time = datetime.datetime.combine(current_date, datetime.time(OPENING_HOUR_END, 0))
 
                 while current_time < end_day_time:
                     time_str = current_time.strftime("%H:%M:%S")
                     
-                    # Als de tijd NIET in de beschikbare tijden zit, is de baan BEZET!
-                    if time_str not in available_times:
+                    # Als de starttijd van 60 min NIET voorkomt in Playtomic, is het slot bezet!
+                    if time_str not in available_times_60:
                         slot_start_dt = current_time
-                        slot_end_dt = current_time + datetime.timedelta(minutes=SLOT_DURATION_MINUTES)
+                        # We maken een blokkade van 60 minuten in de agenda
+                        slot_end_dt = current_time + datetime.timedelta(minutes=60)
                         
-                        # ISO format met tijdzone voor Google Calendar
                         start_iso = slot_start_dt.isoformat()
                         
                         if start_iso not in existing_event_keys:
                             event_body = {
                                 'summary': 'Playtomic Baan Bezet (Padelkapel)',
-                                'description': f'Automatisch geblokkeerd via Playtomic',
+                                'description': f'Automatisch geblokkeerd via Playtomic (60m check)',
                                 'start': {'dateTime': slot_start_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
                                 'end': {'dateTime': slot_end_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
                             }
                             service.events().insert(calendarId=calendar_id, body=event_body).execute()
-                            print(f"[+ Toegevoegd] Blokkade op {date_str} {time_str}")
+                            print(f"[+ Toegevoegd] Blokkade op {date_str} van {current_time.strftime('%H:%M')} tot {slot_end_dt.strftime('%H:%M')}")
                             total_added += 1
 
-                    current_time += datetime.timedelta(minutes=SLOT_DURATION_MINUTES)
+                    # Stap telkens 30 minuten verder om het rooster af te lopen
+                    current_time += datetime.timedelta(minutes=30)
 
-    print(f"Sync voltooid. Totaal {total_added} nieuwe blokkades toegevoegd aan Google Calendar.")
+    print(f"Sync voltooid. Totaal {total_added} nieuwe blokkades toegevoegd aan Google Calendar.")    
     
 main()
