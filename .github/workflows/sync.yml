@@ -1,10 +1,11 @@
 name: Playtomic Calendar Sync
 
 on:
-  schedule:
-    # Draait op minuut 12 en minuut 42 van elk uur om GitHub-pieken te omzeilen
-    - cron: '12,42 * * * *'
   workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
 
 jobs:
   sync:
@@ -24,6 +25,3 @@ jobs:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           CALENDAR_ID: ${{ secrets.CALENDAR_ID }}
         run: ./venv/bin/python sync.py
-
-      - name: Voorkom dat repository in slaap valt
-        uses: gautamkrishnar/keepalive-workflow@v2
