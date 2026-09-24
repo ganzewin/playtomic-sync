@@ -85,58 +85,56 @@ def main():
 
     total_added = 0
 
+    # Definieer de openingstijden (bijv. van 07:00 tot 23:00, elk half uur)
+    OPENING_HOUR_START = 7   # 07:00
+    OPENING_HOUR_END = 23    # 23:00
+    SLOT_DURATION_MINUTES = 30 # Blokken van 30 min of 60 min
+
     for day_offset in range(DAYS_AHEAD):
         current_date = today + datetime.timedelta(days=day_offset)
         date_str = current_date.strftime("%Y-%m-%d")
         
         data = get_playtomic_availability(TENANT_ID, date_str)
         
-        # Eenmalig op dag 1 de exacte JSON structuur printen om te zien wat Playtomic geeft
-        if day_offset == 0 and data:
-            print(f"--- DEBUG DATA DUMP DAG 1 ---")
-            print(json.dumps(data, indent=2)[:1000])
-            print(f"-----------------------------")
-
-        if isinstance(data, list):
-            for item in data:
-                # Check op verschillende veldnamen voor baannaam
-                resource_name = (
-                    item.get('name') or 
-                    item.get('resource_name') or 
-                    item.get('properties', {}).get('name', '')
-                ).lower()
+        if isinstance(data, list) and len(data) > 0:
+            for resource in data:
+                slots = resource.get('slots', [])
                 
-                slots = item.get('slots', [])
-                
+                # Verzamel alle starttijden die écht beschikbaar zijn (bijv. "08:00:00", "08:30:00")
+                available_times = set()
                 for slot in slots:
-                    # Controleer op alle mogelijke velden die op 'bezet' kunnen duiden
-                    is_available = slot.get('available', True)
-                    status = slot.get('status', '').upper()
+                    start_time = slot.get('start_time')
+                    if start_time:
+                        available_times.add(start_time)
+
+                # Genereer alle mogelijke tijdslots tussen openingstijd en sluitingstijd
+                current_time = datetime.datetime.combine(current_date, datetime.time(OPENING_HOUR_START, 0))
+                end_day_time = datetime.datetime.combine(current_date, datetime.time(OPENING_HOUR_END, 0))
+
+                while current_time < end_day_time:
+                    time_str = current_time.strftime("%H:%M:%S")
                     
-                    # Een slot is bezet als available False is OF status 'LOCKED'/'BOOKED'/'UNAVAILABLE' is
-                    is_blocked = (is_available is False) or (status in ['LOCKED', 'BOOKED', 'UNAVAILABLE', 'RESERVED'])
-                    
-                    if is_blocked:
-                        start_time_str = slot.get('start_time')
-                        end_time_str = slot.get('end_time')
+                    # Als de tijd NIET in de beschikbare tijden zit, is de baan BEZET!
+                    if time_str not in available_times:
+                        slot_start_dt = current_time
+                        slot_end_dt = current_time + datetime.timedelta(minutes=SLOT_DURATION_MINUTES)
                         
-                        start_dt = datetime.datetime.fromisoformat(start_time_str)
-                        end_dt = datetime.datetime.fromisoformat(end_time_str)
-                        
-                        start_iso = start_dt.isoformat()
+                        # ISO format met tijdzone voor Google Calendar
+                        start_iso = slot_start_dt.isoformat()
                         
                         if start_iso not in existing_event_keys:
                             event_body = {
                                 'summary': 'Playtomic Baan Bezet (Padelkapel)',
-                                'description': f'Automatisch geblokkeerd via Playtomic voor {resource_name or "Dubbelbaan"}',
-                                'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
-                                'end': {'dateTime': end_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
+                                'description': f'Automatisch geblokkeerd via Playtomic',
+                                'start': {'dateTime': slot_start_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
+                                'end': {'dateTime': slot_end_dt.isoformat(), 'timeZone': 'Europe/Amsterdam'},
                             }
                             service.events().insert(calendarId=calendar_id, body=event_body).execute()
-                            print(f"[+ Toegevoegd] Blokkade op {start_time_str}")
+                            print(f"[+ Toegevoegd] Blokkade op {date_str} {time_str}")
                             total_added += 1
 
-    print(f"Sync voltooid. Totaal {total_added} nieuwe blokkades toegevoegd aan Google Calendar.")
+                    current_time += datetime.timedelta(minutes=SLOT_DURATION_MINUTES)
 
-if __name__ == "__main__":
-    main()
+    print(f"Sync voltooid. Totaal {total_added} nieuwe blokkades toegevoegd aan Google Calendar.")
+    
+main()
