@@ -59,7 +59,7 @@ def clear_existing_events(start_iso, end_iso):
             calendarId=calendar_id,
             timeMin=start_iso,
             timeMax=end_iso,
-            q="Playtomic Baan Bezet",
+            q="Bezet Sync",
             pageToken=page_token
         ).execute()
 
@@ -152,7 +152,7 @@ def main():
                     end_local = block_end_utc.astimezone(LOCAL_TZ)
                     
                     event_body = {
-                        'summary': 'Playtomic Baan Bezet (Padelkapel)',
+                        'summary': 'Bezet Sync',
                         'description': 'Automatisch geblokkeerd via Playtomic (Dubbelbaan)',
                         'start': {'dateTime': start_local.isoformat()},
                         'end': {'dateTime': end_local.isoformat()},
