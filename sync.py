@@ -34,32 +34,22 @@ headers = {
 }
 
 def get_playtomic_availability(tenant_id, date_str):
-    """ Haalt Playtomic availability data op voor een specifieke datum """
     url = "https://playtomic.com/api/clubs/availability"
     params = {
         'tenant_id': tenant_id,
         'date': date_str,
         'sport_id': 'PADEL'
     }
-    
     try:
-        response = requests.get(
-            url, 
-            headers=headers, 
-            params=params, 
-            impersonate="chrome120", 
-            timeout=15
-        )
+        response = requests.get(url, headers=headers, params=params, impersonate="chrome120", timeout=15)
         if response.status_code == 200:
             return response.json()
-        print(f"[{date_str}] Fout bij ophalen ({response.status_code}): {response.text[:200]}")
         return []
     except Exception as e:
-        print(f"[{date_str}] Exception bij verzoek: {e}")
+        print(f"[{date_str}] Exception: {e}")
         return []
 
 def clear_existing_events(start_iso, end_iso):
-    """ Wist alle bestaande Playtomic afspraken voor de komende periode """
     print("Oude Playtomic afspraken opruimen uit Google Calendar...")
     page_token = None
     deleted_count = 0
@@ -86,7 +76,7 @@ def clear_existing_events(start_iso, end_iso):
 
 def main():
     today = datetime.date.today()
-    print(f"Start Playtomic sync voor Padelkapel ({TENANT_ID}) voor de komende {DAYS_AHEAD} dagen (vanaf {today})...")
+    print(f"Start Playtomic sync voor Padelkapel ({TENANT_ID}) voor de komende {DAYS_AHEAD} dagen...")
     
     start_dt_utc = datetime.datetime.combine(today, datetime.time.min, tzinfo=datetime.timezone.utc)
     end_dt_utc = datetime.datetime.combine(today + datetime.timedelta(days=DAYS_AHEAD), datetime.time.max, tzinfo=datetime.timezone.utc)
@@ -95,7 +85,7 @@ def main():
 
     total_added = 0
 
-    # Openingstijden in UTC (06:00 tot 21:30 UTC = 08:00 tot 23:30 CEST)
+    # Openingstijden UTC (06:00 UTC = 08:00 NL tijd)
     OPENING_HOUR_UTC_START = 6
     OPENING_HOUR_UTC_END = 21
 
@@ -114,18 +104,27 @@ def main():
                 ).lower()
 
                 if "enkel" in resource_name:
-                    continue  # Sla enkelbanen over
+                    continue  # Negeer enkelbaan
 
                 slots = resource.get('slots', [])
                 
-                # Filter ALLEEN starttijden van 60 min slots
-                available_start_times = set()
+                # Bepaal alle 30-minuten intervallen die ÉCHT vrij zijn om te spelen
+                free_30min_intervals = set()
                 for slot in slots:
-                    duration = slot.get('duration')
-                    start_time = slot.get('start_time')
-                    if duration == 60 and start_time:
-                        available_start_times.add(start_time)
+                    start_str = slot.get('start_time')
+                    duration = slot.get('duration', 0)
+                    if start_str and duration > 0:
+                        # Converteer HH:MM:SS naar een time object
+                        h, m, s = map(int, start_str.split(':'))
+                        slot_start_dt = datetime.datetime.combine(current_date, datetime.time(h, m), tzinfo=datetime.timezone.utc)
+                        
+                        # Voeg elk half uur van dit vrije slot toe aan de vrije verzameling
+                        num_half_hours = duration // 30
+                        for i in range(num_half_hours):
+                            interval_time = slot_start_dt + datetime.timedelta(minutes=30 * i)
+                            free_30min_intervals.add(interval_time)
 
+                # Doorloop de dag in stappen van 30 minuten
                 current_time_utc = datetime.datetime.combine(current_date, datetime.time(OPENING_HOUR_UTC_START, 0), tzinfo=datetime.timezone.utc)
                 end_day_utc = datetime.datetime.combine(current_date, datetime.time(OPENING_HOUR_UTC_END, 0), tzinfo=datetime.timezone.utc)
 
@@ -133,10 +132,8 @@ def main():
                 current_block_start = None
 
                 while current_time_utc < end_day_utc:
-                    time_str = current_time_utc.strftime("%H:%M:%S")
-                    
-                    # Als de tijd NIET beschikbaar is voor 60 min
-                    if time_str not in available_start_times:
+                    # Als dit halfuur NIET in de vrije intervallen zit, is de baan bezet
+                    if current_time_utc not in free_30min_intervals:
                         if current_block_start is None:
                             current_block_start = current_time_utc
                     else:
@@ -146,11 +143,10 @@ def main():
 
                     current_time_utc += datetime.timedelta(minutes=30)
 
-                # Eventueel laatste blokje van de dag afsluiten
                 if current_block_start is not None:
                     busy_intervals.append((current_block_start, current_time_utc))
 
-                # Maak voor elk samengevoegd blok 1 nette Google Calendar afspraak
+                # Maak de afspraken aan in Google Calendar
                 for block_start_utc, block_end_utc in busy_intervals:
                     start_local = block_start_utc.astimezone(LOCAL_TZ)
                     end_local = block_end_utc.astimezone(LOCAL_TZ)
