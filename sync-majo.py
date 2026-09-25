@@ -41,7 +41,7 @@ def clear_existing_events(service, calendar_id, start_dt, end_dt):
 
 def fetch_majo_availability(date_str):
     """Haal beschikbaarheid op via de KNLTB/MatchMaker API van Majo Padel."""
-    url = f"https://boeken.majopadel.com/web/api/group/2052/v2/bookings/checkcart"
+    url = "https://boeken.majopadel.com/web/api/group/2052/v2/bookings/checkcart"
     
     params = {
         "from": "06:00",
@@ -67,27 +67,35 @@ def fetch_majo_availability(date_str):
         data = response.json()
         available_times = set()
         
-        # De response bevat de beschikbare slots per tijdstip/baan
-        # We doorzoeken de JSON structuur op starttijden
-        if isinstance(data, list):
-            items = data
-        elif isinstance(data, dict):
-            items = data.get("data", data.get("slots", data.get("availabilities", [])))
-        else:
-            items = []
+        # Recursieve zoekfunctie om alle beschikbare tijden uit complexe/geneste JSON te halen
+        def extract_times(obj):
+            if isinstance(obj, dict):
+                # Zoek naar sleutels die tijden bevatten
+                for k, v in obj.items():
+                    if k in ["start_time", "startTime", "time", "start", "from"] and isinstance(v, str):
+                        if len(v) >= 5 and ":" in v:
+                            # Alleen toevoegen als de status van het slot niet bezet/geboekt is
+                            status = str(obj.get("status", "")).lower()
+                            is_free = obj.get("available", True) or obj.get("is_available", True)
+                            if status not in ["booked", "occupied", "unavailable"] and is_free:
+                                available_times.add(v[:5])
+                    else:
+                        extract_times(v)
+            elif isinstance(obj, list):
+                for item in obj:
+                    extract_times(item)
 
-        for item in items:
-            if isinstance(item, dict):
-                # Haal starttijd op uit mogelijke sleutels (bijv. 'start_time', 'time', 'start')
-                start_time = item.get("start_time") or item.get("time") or item.get("start") or item.get("startTime")
-                if start_time:
-                    available_times.add(str(start_time)[:5])
-                
+        extract_times(data)
+        
+        # Debugmelding om in de logs te zien hoeveel unieke tijden er gevonden zijn
+        print(f"Dag {date_str}: {len(available_times)} beschikbare starttijden gevonden.")
         return available_times
+
     except Exception as e:
         print(f"Uitzondering bij ophalen {date_str}: {e}")
         return set()
-        
+
+
 def calculate_busy_blocks(date_obj, available_times):
     """Bereken welke uren bezet zijn op basis van ontbrekende starttijden."""
     tz = zoneinfo.ZoneInfo(TIMEZONE)
