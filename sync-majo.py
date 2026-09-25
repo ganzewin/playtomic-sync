@@ -68,22 +68,26 @@ def fetch_majo_available_times(date_str):
         
         court_availability = data.get("court_availability", [])
         for court_item in court_availability:
-            court_name = court_item.get("name", "")
+            # 1. Haal de baaninformatie op uit het geneste 'court' object
+            court_info = court_item.get("court", {})
+            court_name = court_info.get("name", "")
+            game_type = court_info.get("game", "")
             
             # Negeer Single 7 / singlebanen
-            if "single" in court_name.lower() or "7" in court_name:
+            if game_type == "singles" or "single" in court_name.lower() or "7" in court_name:
                 continue
                 
-            # Haal alle vrije slots op voor deze dubbelbaan
-            slots = court_item.get("availability", [])
-            for slot in slots:
-                start_time = slot.get("start_time")
-                if start_time:
-                    # Formaat van start_time is bijv. "06:00:00" -> pak "06:00"
-                    time_str = start_time[:5]
-                    available_start_times.add(time_str)
+            # 2. Doorzoek de 'durations' array naar 60-minuten slots
+            for dur in court_item.get("durations", []):
+                if str(dur.get("duration")) == "60":
+                    for slot in dur.get("availability", []):
+                        start_dt = slot.get("start_date_time", "")
+                        if " " in start_dt:
+                            # '2026-09-27 06:00:00' -> pak '06:00'
+                            time_str = start_dt.split(" ")[1][:5]
+                            available_start_times.add(time_str)
                             
-        print(f"Dag {date_str}: {len(available_start_times)} tijdsstippen gevonden waar minimaal 1 dubbelbaan vrij is.")
+        print(f"Dag {date_str}: {len(available_start_times)} unieke starttijden gevonden op dubbelbanen.")
         return available_start_times
 
     except Exception as e:
@@ -93,7 +97,7 @@ def fetch_majo_available_times(date_str):
 def calculate_busy_blocks(date_obj, available_start_times):
     """
     Bepaalt welke uren GEBLOKT/BEZET zijn (wanneer er géén enkele dubbelbaan vrij is).
-    Voegt aaneengesloten bezette uren samen.
+    Voegt aaneengesloten bezette uren samen tot grotere blokken.
     """
     tz = zoneinfo.ZoneInfo(TIMEZONE)
     busy_blocks = []
@@ -112,7 +116,7 @@ def calculate_busy_blocks(date_obj, available_start_times):
             if block_start is None:
                 block_start = current_dt
         else:
-            # Er is weer een baan vrij, dus sluit het eventuele bezette blok af
+            # Er is weer een baan vrij, sluit het eventuele bezette blok af
             if block_start is not None:
                 busy_blocks.append((block_start, current_dt))
                 block_start = None
