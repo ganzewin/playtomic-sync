@@ -1,0 +1,27 @@
+name: Majo Padel Calendar Sync
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  sync:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Virtual Environment
+        run: |
+          python3 -m venv venv
+          ./venv/bin/pip install --upgrade pip
+          if [ -f requirements.txt ]; then ./venv/bin/pip install -r requirements.txt; fi
+
+      - name: Run Majo Padel Sync Script
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+          MAJO_CALENDAR_ID: ${{ secrets.MAJO_CALENDAR_ID }}
+        run: ./venv/bin/python sync-majo.py
