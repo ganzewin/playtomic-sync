@@ -7,13 +7,12 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 # Instellingen
-CLUB_ID = "88258"  # Majo Padel op Meet & Play
 DAYS_AHEAD = 14     # Aantal dagen vooruit synchroniseren
 TIMEZONE = "Europe/Amsterdam"
-CALENDAR_ID = os.environ.get("MAJO_CALENDAR_ID")  # Aparte Google Calendar ID
+CALENDAR_ID = os.environ.get("MAJO_CALENDAR_ID")  # Google Calendar ID
 GOOGLE_CREDENTIALS_JSON = os.environ.get("GOOGLE_CREDENTIALS_JSON")
 
-# Openingstijden (gebaseerd op het Majo Padel overzicht: 06:00 - 23:00)
+# Openingstijden (06:00 - 23:00)
 OPENING_HOUR = 6
 CLOSING_HOUR = 23
 
@@ -34,20 +33,18 @@ def clear_existing_events(service, calendar_id, start_dt, end_dt):
     
     events = events_result.get('items', [])
     for event in events:
-        # Check op onze unieke tag/marker
         if event.get('description') == "MAJO_SYNC_AUTO":
             service.events().delete(calendarId=calendar_id, eventId=event['id']).execute()
-            
 
 def fetch_majo_availability(date_str):
-    """Haal beschikbaarheid op via de KNLTB/MatchMaker API van Majo Padel (alleen Padel 1 t/m 6)."""
+    """Haal beschikbaarheid op via de Majopadel API (alleen dubbelbanen Padel 1 t/m 6)."""
     url = "https://boeken.majopadel.com/web/api/group/2052/v2/bookings/checkcart"
     
     params = {
         "from": "06:00",
         "to": "24:00",
         "camera": "false",
-        "favour": "false",
+        "favourite": "false",
         "availability": "1",
         "date": date_str
     }
@@ -69,23 +66,21 @@ def fetch_majo_availability(date_str):
         
         court_availability = data.get("court_availability", [])
         for court_item in court_availability:
-            court_info = court_item.get("court", {})
-            court_name = court_info.get("name", "")
+            court_name = court_item.get("name", "")
+            game_type = court_item.get("game", "")
             
-            # Sla baan 7 / single baan over
-            if "single" in court_name.lower() or "7" in court_name:
+            # Negeer de singlebaan (Single 7 / singles)
+            if game_type == "singles" or "single" in court_name.lower() or "7" in court_name:
                 continue
                 
-            for dur in court_item.get("durations", []):
-                # Filter op 60-minuten slots
-                if str(dur.get("duration")) == "60":
-                    for slot in dur.get("availability", []):
-                        start_dt = slot.get("start_date_time", "")
-                        if " " in start_dt:
-                            time_str = start_dt.split(" ")[1][:5]
-                            available_times.add(time_str)
+            # Direct over de availability array lopen
+            for slot in court_item.get("availability", []):
+                start_time = slot.get("start_time", "")  # Formaat is "HH:MM:SS" of "HH:MM"
+                if start_time:
+                    time_str = start_time[:5]  # Pak "HH:MM"
+                    available_times.add(time_str)
                             
-        print(f"Dag {date_str}: {len(available_times)} unieke beschikbare starttijden gevonden (Padel 1-6).")
+        print(f"Dag {date_str}: {len(available_times)} unieke beschikbare starttijden gevonden op dubbelbanen.")
         return available_times
 
     except Exception as e:
@@ -106,19 +101,17 @@ def calculate_busy_blocks(date_obj, available_times):
         time_str = current_dt.strftime("%H:%M")
         next_dt = current_dt + timedelta(minutes=60)
         
-        # Als de starttijd NIET in de beschikbare tijden zit, is deze bezet
+        # Als er op géén enkele dubbelbaan een starttijd is, is de hal op dat uur bezet
         if time_str not in available_times:
             if block_start is None:
                 block_start = current_dt
         else:
-            # Als er een bezet blok liep, sluiten we die nu af
             if block_start is not None:
                 busy_blocks.append((block_start, current_dt))
                 block_start = None
                 
         current_dt = next_dt
         
-    # Afsluiten als de dag eindigt met bezette uren
     if block_start is not None:
         busy_blocks.append((block_start, current_dt))
         
