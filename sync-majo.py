@@ -40,7 +40,7 @@ def clear_existing_events(service, calendar_id, start_dt, end_dt):
             
 
 def fetch_majo_availability(date_str):
-    """Haal beschikbaarheid op via de KNLTB/MatchMaker API van Majo Padel."""
+    """Haal beschikbaarheid op via de KNLTB/MatchMaker API van Majo Padel (alleen Padel 1 t/m 6)."""
     url = "https://boeken.majopadel.com/web/api/group/2052/v2/bookings/checkcart"
     
     params = {
@@ -67,35 +67,31 @@ def fetch_majo_availability(date_str):
         data = response.json()
         available_times = set()
         
-        # Recursieve zoekfunctie om alle beschikbare tijden uit complexe/geneste JSON te halen
-        def extract_times(obj):
-            if isinstance(obj, dict):
-                # Zoek naar sleutels die tijden bevatten
-                for k, v in obj.items():
-                    if k in ["start_time", "startTime", "time", "start", "from"] and isinstance(v, str):
-                        if len(v) >= 5 and ":" in v:
-                            # Alleen toevoegen als de status van het slot niet bezet/geboekt is
-                            status = str(obj.get("status", "")).lower()
-                            is_free = obj.get("available", True) or obj.get("is_available", True)
-                            if status not in ["booked", "occupied", "unavailable"] and is_free:
-                                available_times.add(v[:5])
-                    else:
-                        extract_times(v)
-            elif isinstance(obj, list):
-                for item in obj:
-                    extract_times(item)
-
-        extract_times(data)
-        
-        # Debugmelding om in de logs te zien hoeveel unieke tijden er gevonden zijn
-        print(f"Dag {date_str}: {len(available_times)} beschikbare starttijden gevonden.")
+        court_availability = data.get("court_availability", [])
+        for court_item in court_availability:
+            court_info = court_item.get("court", {})
+            court_name = court_info.get("name", "")
+            
+            # Sla baan 7 / single baan over
+            if "single" in court_name.lower() or "7" in court_name:
+                continue
+                
+            for dur in court_item.get("durations", []):
+                # Filter op 60-minuten slots
+                if str(dur.get("duration")) == "60":
+                    for slot in dur.get("availability", []):
+                        start_dt = slot.get("start_date_time", "")
+                        if " " in start_dt:
+                            time_str = start_dt.split(" ")[1][:5]
+                            available_times.add(time_str)
+                            
+        print(f"Dag {date_str}: {len(available_times)} unieke beschikbare starttijden gevonden (Padel 1-6).")
         return available_times
 
     except Exception as e:
         print(f"Uitzondering bij ophalen {date_str}: {e}")
         return set()
-
-
+        
 def calculate_busy_blocks(date_obj, available_times):
     """Bereken welke uren bezet zijn op basis van ontbrekende starttijden."""
     tz = zoneinfo.ZoneInfo(TIMEZONE)
