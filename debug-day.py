@@ -1,4 +1,3 @@
-import json
 from datetime import datetime, timedelta
 from curl_cffi import requests
 
@@ -6,10 +5,10 @@ TARGET_DATE = "2026-09-27"
 OPENING_TIME = "06:00"
 CLOSING_TIME = "23:00"
 
-def debug_simple_overview():
-    # Nieuw endpoint en exacte querystring
+def check_simple_overview():
     url = "https://boeken.majopadel.com/web/api/group/2052/v2/bookings/simpleOverview"
     
+    # Exacte query parameters van de werkende browser-call
     params = [
         ("from", "00:00"),
         ("to", "24:00"),
@@ -18,9 +17,9 @@ def debug_simple_overview():
         ("favourite", "false"),
         ("availability", "1"),
         ("date", TARGET_DATE),
-        ("durations[]", "120"),
-        ("durations[]", "90"),
         ("durations[]", "60"),
+        ("durations[]", "90"),
+        ("durations[]", "120"),
         ("firstRequest", "0")
     ]
     
@@ -34,41 +33,19 @@ def debug_simple_overview():
     print(f"=== CHECK SIMPLE OVERVIEW VOOR ZONDAG {TARGET_DATE} ===")
     response = requests.get(url, params=params, headers=headers, impersonate="chrome")
     
-    print(f"HTTP Status: {response.status_code}")
     if response.status_code != 200:
-        print("Fout bij ophalen:", response.text[:500])
+        print(f"Fout bij ophalen ({response.status_code}):", response.text[:200])
         return
 
     data = response.json()
     
-    # Haal alle beschikbare starttijden op uit de response
-    # Afhankelijk van de JSON structuur van simpleOverview
-    available_times = set()
-    
-    # 1. Inspecteer root keys
-    print("Response keys:", list(data.keys()) if isinstance(data, dict) else "Lijst van items")
-    
-    # Mogelijke structuren verwerken (lijst van tijden of dict met slots/availability)
-    slots = []
-    if isinstance(data, dict):
-        slots = data.get("availability", []) or data.get("slots", []) or data.get("times", [])
-    elif isinstance(data, list):
-        slots = data
+    # Pak de 'hours' array en neem alleen HH:MM over (bijv. "06:00:00" -> "06:00")
+    raw_hours = data.get("hours", [])
+    available_times = {h[:5] for h in raw_hours}
 
-    for slot in slots:
-        if isinstance(slot, dict):
-            t = slot.get("start_time") or slot.get("time") or slot.get("start")
-        else:
-            t = str(slot)
-            
-        if t:
-            time_clean = t.split(" ")[-1][:5] if " " in str(t) else str(t)[:5]
-            available_times.add(time_clean)
-
-    print(f"\n✅ Beschikbare starttijden op dubbelbanen ({len(available_times)} stuks):")
+    print(f"✅ Beschikbare starttijden op dubbelbanen ({len(available_times)} slots):")
     print(sorted(list(available_times)))
 
-    # Compare tegen alle halfuurs-intervallen tussen 06:00 en 23:00
     print("\n--- STATUS PER 30 MINUTEN (06:00 - 23:00) ---")
     curr = datetime.strptime(OPENING_TIME, "%H:%M")
     end = datetime.strptime(CLOSING_TIME, "%H:%M")
@@ -84,8 +61,11 @@ def debug_simple_overview():
             blocked_times.append(t_str)
         curr += timedelta(minutes=30)
 
-    print("\n--- TOTAAL OVERZICHT GEBLOKTE/BEZETTE SLOTS ---")
-    print(f"Geblokt op zondag: {', '.join(blocked_times) if blocked_times else 'Geen'}")
+    print("\n--- GEBLOKTE / BEZETTE SLOTS OP TARGET TIJDEN ---")
+    target_check = ["09:30", "10:00", "10:30", "11:00"]
+    for t in target_check:
+        status = "❌ BEZET / GEBLOKT" if t in blocked_times else "✅ VRIJ"
+        print(f"Slot {t}: {status}")
 
 if __name__ == "__main__":
-    debug_simple_overview()
+    check_simple_overview()
