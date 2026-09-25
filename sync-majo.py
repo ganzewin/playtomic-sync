@@ -37,20 +37,28 @@ def clear_existing_events(service, calendar_id, start_dt, end_dt):
         # Check op onze unieke tag/marker
         if event.get('description') == "MAJO_SYNC_AUTO":
             service.events().delete(calendarId=calendar_id, eventId=event['id']).execute()
-
+            
 def fetch_majo_availability(date_str):
     """Haal 60-minuten slots op van Majo Padel via de Meet & Play API."""
-    # Correcte Meet & Play API-URL voor clubbeschikbaarheid
-    url = f"https://meetandplay.nl/api/v1/club/{CLUB_ID}/availability?date={date_str}&duration=60"
+    # Meet & Play API endpoint met meervoud 'clubs' en vereiste filters
+    url = f"https://meetandplay.nl/api/v1/clubs/{CLUB_ID}/availability"
+    
+    params = {
+        "date": date_str,
+        "duration": "60",
+        "sport": "padel"
+    }
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
+        "Origin": "https://boeken.majopadel.com",
         "Referer": "https://boeken.majopadel.com/"
     }
     
     try:
-        response = requests.get(url, headers=headers, impersonate="chrome")
+        response = requests.get(url, params=params, headers=headers, impersonate="chrome")
+        
         if response.status_code != 200:
             print(f"Fout bij ophalen {date_str}: HTTP {response.status_code}")
             return set()
@@ -58,19 +66,20 @@ def fetch_majo_availability(date_str):
         data = response.json()
         available_times = set()
         
-        # Doorzoek de ontvangen data op starttijden
+        # Structuren doorzoeken (kan in 'data' of direct in de root zitten)
         items = data.get("data", []) if isinstance(data, dict) else data
+        
         for item in items:
-            start_time = item.get("start_time") or item.get("startTime")
+            # Controleer op starttijd variabelen
+            start_time = item.get("start_time") or item.get("startTime") or item.get("time")
             if start_time:
-                # Zorg voor HH:MM formaat (bijv. "06:30")
                 available_times.add(start_time[:5])
                 
         return available_times
     except Exception as e:
         print(f"Uitzondering bij ophalen {date_str}: {e}")
         return set()
-
+        
 def calculate_busy_blocks(date_obj, available_times):
     """Bereken welke uren bezet zijn op basis van ontbrekende starttijden."""
     tz = zoneinfo.ZoneInfo(TIMEZONE)
