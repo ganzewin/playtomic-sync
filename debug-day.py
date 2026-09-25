@@ -3,16 +3,17 @@ from curl_cffi import requests
 
 TARGET_DATE = "2026-09-27"
 
-def inspect_raw_response(date_str):
+def debug_sunday():
     url = "https://boeken.majopadel.com/web/api/group/2052/v2/bookings/checkcart"
     
+    # Test 1: Standaard query params
     params = {
         "from": "06:00",
         "to": "24:00",
         "camera": "false",
         "favourite": "false",
         "availability": "1",
-        "date": date_str
+        "date": TARGET_DATE
     }
     
     headers = {
@@ -21,36 +22,32 @@ def inspect_raw_response(date_str):
         "Referer": "https://boeken.majopadel.com/nl/booking"
     }
     
-    print(f"=== GET RAW DATA FOR {date_str} ===")
+    print(f"=== FETCHING RAW API DATA FOR {TARGET_DATE} ===")
     response = requests.get(url, params=params, headers=headers, impersonate="chrome")
     
+    print(f"HTTP Status: {response.status_code}")
     if response.status_code != 200:
-        print(f"HTTP Fout: {response.status_code}")
+        print("Response text:", response.text[:500])
         return
 
     data = response.json()
-    court_availability = data.get("court_availability", [])
-
-    print(f"Totaal aantal banen in JSON: {len(court_availability)}\n")
-
-    for idx, court in enumerate(court_availability):
-        court_id = court.get("id")
-        court_name = court.get("name") or court.get("title") or (court.get("court", {}).get("name") if isinstance(court.get("court"), dict) else "ONBEKEND")
-        game_type = court.get("game")
+    
+    # Print de top-level keys in de JSON response
+    print("\nKeys in response JSON:", list(data.keys()))
+    
+    courts = data.get("court_availability", [])
+    print(f"Aantal elementen in court_availability: {len(courts)}")
+    
+    if courts:
+        print("\n--- EERSTE BAAN FULL STRUCTURE DUMP ---")
+        print(json.dumps(courts[0], indent=2))
         
-        # Ophalen van alle starttijden in availability
-        slots = court.get("availability", [])
-        time_list = []
-        for s in slots:
-            # Check diverse mogelijke veldnamen voor starttijd
-            t = s.get("start_time") or s.get("start") or s.get("start_date_time")
-            if t:
-                time_list.append(str(t))
-
-        print(f"Baan [{idx}] -> ID: {court_id} | Naam: '{court_name}' | Type: '{game_type}'")
-        print(f"  -> Aantal slots: {len(slots)}")
-        print(f"  -> Gevonden tijden: {time_list[:10]} {'...' if len(time_list) > 10 else ''}")
-        print("-" * 60)
+        print("\n--- AANTAL SLOTS PER BAAN ---")
+        for idx, court in enumerate(courts):
+            c_name = court.get("name", f"Baan-{idx}")
+            avail = court.get("availability", [])
+            durations = court.get("durations", [])
+            print(f"{c_name}: {len(avail)} slots direct in 'availability', {len(durations)} items in 'durations'")
 
 if __name__ == "__main__":
-    inspect_raw_response(TARGET_DATE)
+    debug_sunday()
