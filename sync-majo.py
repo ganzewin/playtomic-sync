@@ -38,30 +38,28 @@ def clear_existing_events(service, calendar_id, start_dt, end_dt):
         if event.get('description') == "MAJO_SYNC_AUTO":
             service.events().delete(calendarId=calendar_id, eventId=event['id']).execute()
             
+
 def fetch_majo_availability(date_str):
-    """Haal 60-minuten slots op van Majo Padel via het Meet & Play platform."""
-    # Het correcte API endpoint direct via het Majo Padel boekingsdomein
-    url = "https://boeken.majopadel.com/api/v1/availability"
+    """Haal beschikbaarheid op via de KNLTB/MatchMaker API van Majo Padel."""
+    url = f"https://boeken.majopadel.com/web/api/group/2052/v2/bookings/checkcart"
     
     params = {
-        "date": date_str,
-        "duration": "60"
+        "from": "06:00",
+        "to": "24:00",
+        "camera": "false",
+        "favour": "false",
+        "availability": "1",
+        "date": date_str
     }
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
-        "Referer": "https://boeken.majopadel.com/"
+        "Referer": "https://boeken.majopadel.com/nl/booking"
     }
     
     try:
         response = requests.get(url, params=params, headers=headers, impersonate="chrome")
-        
-        # Als het eigen subdomein een 404 geeft, val terug op het centrale Meet & Play endpoint
-        if response.status_code == 404:
-            url_fallback = f"https://meetandplay.nl/api/v1/clubs/{CLUB_ID}/availability"
-            response = requests.get(url_fallback, params=params, headers=headers, impersonate="chrome")
-
         if response.status_code != 200:
             print(f"Fout bij ophalen {date_str}: HTTP {response.status_code}")
             return set()
@@ -69,12 +67,21 @@ def fetch_majo_availability(date_str):
         data = response.json()
         available_times = set()
         
-        # Doorzoek ontvangen data
-        items = data.get("data", []) if isinstance(data, dict) else data
+        # De response bevat de beschikbare slots per tijdstip/baan
+        # We doorzoeken de JSON structuur op starttijden
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            items = data.get("data", data.get("slots", data.get("availabilities", [])))
+        else:
+            items = []
+
         for item in items:
-            start_time = item.get("start_time") or item.get("startTime") or item.get("time")
-            if start_time:
-                available_times.add(start_time[:5])
+            if isinstance(item, dict):
+                # Haal starttijd op uit mogelijke sleutels (bijv. 'start_time', 'time', 'start')
+                start_time = item.get("start_time") or item.get("time") or item.get("start") or item.get("startTime")
+                if start_time:
+                    available_times.add(str(start_time)[:5])
                 
         return available_times
     except Exception as e:
