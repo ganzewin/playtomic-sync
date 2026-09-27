@@ -152,7 +152,7 @@ def main():
                     end_local = block_end_utc.astimezone(LOCAL_TZ)
                     
                     event_body = {
-                        'summary': 'Bezet Sync',
+                        'summary': 'PadelKapel Bezet',
                         'description': 'Automatisch geblokkeerd via Playtomic (Dubbelbaan)',
                         'start': {'dateTime': start_local.isoformat()},
                         'end': {'dateTime': end_local.isoformat()},
