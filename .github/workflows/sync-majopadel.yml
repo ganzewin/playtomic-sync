@@ -1,4 +1,4 @@
-name: Majo Padel Calendar Sync
+name: MajoPadel Calendar Sync
 
 on:
   workflow_dispatch:
@@ -24,4 +24,4 @@ jobs:
         env:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           MAJO_CALENDAR_ID: ${{ secrets.MAJO_CALENDAR_ID }}
-        run: ./venv/bin/python sync-majo.py
+        run: ./venv/bin/python sync-majopadel.py
