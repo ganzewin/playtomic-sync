@@ -1,4 +1,4 @@
-name: Padelkapel Calendar Sync
+name: PadelKapel Calendar Sync
 
 on:
   workflow_dispatch:
