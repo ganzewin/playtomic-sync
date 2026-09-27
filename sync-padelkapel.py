@@ -59,7 +59,7 @@ def clear_existing_events(start_iso, end_iso):
             calendarId=calendar_id,
             timeMin=start_iso,
             timeMax=end_iso,
-            q="Bezet Sync",
+            q="PadelKapel Bezet",
             pageToken=page_token
         ).execute()
 
