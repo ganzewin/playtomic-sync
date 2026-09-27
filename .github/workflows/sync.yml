@@ -1,4 +1,4 @@
-name: Playtomic Calendar Sync
+name: Padelkapel Calendar Sync
 
 on:
   workflow_dispatch:
@@ -20,8 +20,8 @@ jobs:
           ./venv/bin/pip install --upgrade pip
           if [ -f requirements.txt ]; then ./venv/bin/pip install -r requirements.txt; fi
 
-      - name: Run Playtomic Sync Script
+      - name: Run Padelkapel Sync Script
         env:
           GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
           CALENDAR_ID: ${{ secrets.CALENDAR_ID }}
-        run: ./venv/bin/python sync.py
+        run: ./venv/bin/python sync-padelkapel.py
