@@ -138,7 +138,7 @@ def sync_majo():
         
         for start_dt, end_dt in busy_blocks:
             event = {
-                'summary': 'Majo Padel Bezet',
+                'summary': 'MajoPadel Bezet',
                 'description': 'MAJO_SYNC_AUTO',
                 'start': {'dateTime': start_dt.isoformat()},
                 'end': {'dateTime': end_dt.isoformat()},
